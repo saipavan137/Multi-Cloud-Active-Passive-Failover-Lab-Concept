@@ -44,16 +44,35 @@ $env:TF_STATE_BUCKET = "your-unique-tf-state-bucket-name"   # globally unique
 
 ```powershell
 az login
-az account set --subscription "YOUR_SUBSCRIPTION_ID"
+az account set --subscription "6e794120-7055-42d4-a6aa-8e9b36588a43"
 
 az ad sp create-for-rbac `
   --name "failover-lab-github" `
   --role contributor `
-  --scopes /subscriptions/YOUR_SUBSCRIPTION_ID `
-  --sdk-auth
+  --scopes /subscriptions/6e794120-7055-42d4-a6aa-8e9b36588a43
 ```
 
-Copy the **entire JSON output** — this becomes `AZURE_CREDENTIALS`.
+Example output:
+
+```json
+{
+  "appId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "displayName": "failover-lab-github",
+  "password": "your-client-secret",
+  "tenant": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+}
+```
+
+Map these to GitHub **Secrets** (do **not** paste the whole JSON into one secret):
+
+| GitHub Secret | Value from `az` output |
+|---------------|------------------------|
+| `AZURE_CLIENT_ID` | `appId` |
+| `AZURE_CLIENT_SECRET` | `password` |
+| `AZURE_TENANT_ID` | `tenant` |
+| `AZURE_SUBSCRIPTION_ID` | `6e794120-7055-42d4-a6aa-8e9b36588a43` |
+
+> **Common mistake:** Pasting raw `az` output into `AZURE_CREDENTIALS` causes `SyntaxError` in `azure/login`. Use the four separate secrets above instead.
 
 ### 4. Add GitHub Secrets
 
@@ -61,9 +80,12 @@ Copy the **entire JSON output** — this becomes `AZURE_CREDENTIALS`.
 
 | Secret | Value |
 |--------|--------|
-| `AWS_ACCESS_KEY_ID` | IAM user access key (needs EC2, ELB, Route53, ACM, S3, DynamoDB) |
+| `AWS_ACCESS_KEY_ID` | IAM user access key (needs EC2, ELB, Route53, S3, DynamoDB) |
 | `AWS_SECRET_ACCESS_KEY` | IAM secret key |
-| `AZURE_CREDENTIALS` | Full JSON from `az ad sp create-for-rbac --sdk-auth` |
+| `AZURE_CLIENT_ID` | Service principal `appId` from `az ad sp create-for-rbac` |
+| `AZURE_CLIENT_SECRET` | Service principal `password` |
+| `AZURE_TENANT_ID` | `tenant` from the same command |
+| `AZURE_SUBSCRIPTION_ID` | Your Azure subscription ID |
 
 ### 5. Add GitHub Variables
 
