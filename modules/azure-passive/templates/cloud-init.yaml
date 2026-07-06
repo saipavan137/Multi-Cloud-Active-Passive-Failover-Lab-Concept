@@ -1,0 +1,33 @@
+#cloud-config
+package_update: true
+packages:
+  - nginx
+
+write_files:
+  - path: /var/www/html/index.html
+    content: |
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Multi-Cloud Failover Lab</title>
+        <style>
+          body { font-family: system-ui, sans-serif; max-width: 640px; margin: 4rem auto; padding: 0 1rem; }
+          .badge { display: inline-block; background: #0078d4; color: #fff; padding: 0.25rem 0.75rem; border-radius: 4px; font-weight: 600; }
+          h1 { color: #1a1a1a; }
+        </style>
+      </head>
+      <body>
+        <p class="badge">PASSIVE STANDBY — Azure</p>
+        <h1>Hello World</h1>
+        <p>Traffic is being served from the <strong>Azure</strong> environment (VM + Load Balancer).</p>
+        <p>You reached this page because Route 53 failed over from AWS.</p>
+      </body>
+      </html>
+  - path: /var/www/html/health
+    content: "OK"
+
+runcmd:
+  - systemctl enable nginx
+  - systemctl restart nginx

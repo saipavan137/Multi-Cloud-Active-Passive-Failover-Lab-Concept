@@ -1,0 +1,11 @@
+# Copy to backend.hcl (gitignored) and fill in after running scripts/bootstrap-backend.sh
+#   cp config/backend.hcl.example backend.hcl
+#
+# Local init:
+#   terraform init -backend-config=backend.hcl
+
+bucket         = "YOUR-TF-STATE-BUCKET-NAME"
+key            = "failover-lab/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "failover-lab-tf-locks"
+encrypt        = true
