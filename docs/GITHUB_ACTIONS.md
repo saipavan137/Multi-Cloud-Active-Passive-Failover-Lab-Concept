@@ -63,7 +63,7 @@ Example output:
 }
 ```
 
-Map these to GitHub **Secrets** (do **not** paste the whole JSON into one secret):
+Map these to GitHub **Secrets** (one value per secret — the workflow builds valid JSON automatically):
 
 | GitHub Secret | Value from `az` output |
 |---------------|------------------------|
@@ -72,7 +72,7 @@ Map these to GitHub **Secrets** (do **not** paste the whole JSON into one secret
 | `AZURE_TENANT_ID` | `tenant` |
 | `AZURE_SUBSCRIPTION_ID` | `6e794120-7055-42d4-a6aa-8e9b36588a43` |
 
-> **Common mistake:** Pasting raw `az` output into `AZURE_CREDENTIALS` causes `SyntaxError` in `azure/login`. Use the four separate secrets above instead.
+> **Do not** paste raw `az` output into a single secret. Use the four separate secrets above.
 
 ### 4. Add GitHub Secrets
 
