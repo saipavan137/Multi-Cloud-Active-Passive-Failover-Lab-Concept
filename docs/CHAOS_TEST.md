@@ -21,7 +21,29 @@ This guide walks you through intentionally breaking the **active AWS environment
 
 3. Open your browser to the `app_url` and keep it ready to refresh.
 
-## Method 1 — Block security group traffic (recommended)
+## Method 0 — Run it from GitHub Actions (no local CLI)
+
+If you deployed from GitHub Actions, you can run the whole chaos test from the **Actions** tab.
+
+1. **Actions** → **Chaos Test** → **Run workflow**
+2. Pick an action:
+
+   | Action | What it does |
+   |--------|--------------|
+   | `break` | Removes the ALB → EC2 rule (simulates the outage) |
+   | `restore` | Re-adds the rule (AWS becomes healthy again) |
+   | `status` | Shows the Route 53 health check + which cloud is serving |
+
+3. After **break**, wait ~60 seconds, then run **status** (or refresh the app URL) — it should show **PASSIVE STANDBY — Azure**.
+4. Run **restore** to bring AWS back, then **status** again to confirm it returns to **ACTIVE — AWS**.
+
+The workflow reads the security group and health check IDs straight from remote Terraform state, so you never paste any IDs. It uses the same AWS secrets you already configured.
+
+> Every run also prints a **status** summary at the end, so a single `break` run already shows you the health check state.
+
+---
+
+## Method 1 — Block security group traffic (recommended, local CLI)
 
 This simulates the app becoming unreachable behind the load balancer — the most realistic scenario for this lab.
 

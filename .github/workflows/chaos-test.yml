@@ -1,0 +1,134 @@
+name: Chaos Test
+
+# Simulate an AWS outage and watch Route 53 fail over to Azure.
+#
+# How it works:
+#   break   -> removes the ingress rule that lets the ALB reach the EC2 app.
+#              The ALB target goes unhealthy, the Route 53 health check on the
+#              ALB /health fails, and after ~60s DNS fails over to Azure.
+#   restore -> re-adds the ingress rule so AWS becomes healthy again and
+#              Route 53 routes back to the primary (AWS).
+#   status  -> shows the Route 53 health check status and hits each endpoint.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Chaos action
+        required: true
+        default: status
+        type: choice
+        options:
+          - break
+          - restore
+          - status
+
+concurrency:
+  group: chaos-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.14.8"
+
+jobs:
+  chaos:
+    name: Chaos ${{ inputs.action }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.TF_STATE_REGION || vars.TF_VAR_AWS_REGION || 'us-east-1' }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ vars.TF_STATE_KEY || 'failover-lab/terraform.tfstate' }}" \
+            -backend-config="region=${{ vars.TF_STATE_REGION || vars.TF_VAR_AWS_REGION || 'us-east-1' }}" \
+            -backend-config="dynamodb_table=${{ vars.TF_STATE_DYNAMODB_TABLE }}" \
+            -backend-config="encrypt=true"
+
+      - name: Read Terraform outputs
+        id: tf
+        run: |
+          APP_SG=$(terraform output -raw chaos_test_aws_security_group_id)
+          HC_ID=$(terraform output -raw route53_health_check_id)
+          AWS_URL=$(terraform output -raw aws_alb_url)
+          AZURE_URL=$(terraform output -raw azure_lb_url)
+          APP_URL=$(terraform output -raw app_url)
+          PROJECT=$(terraform output -raw deployment_mode || echo "failover-lab")
+          echo "app_sg=$APP_SG" >> "$GITHUB_OUTPUT"
+          echo "hc_id=$HC_ID" >> "$GITHUB_OUTPUT"
+          echo "aws_url=$AWS_URL" >> "$GITHUB_OUTPUT"
+          echo "azure_url=$AZURE_URL" >> "$GITHUB_OUTPUT"
+          echo "app_url=$APP_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve ALB security group
+        id: albsg
+        run: |
+          ALB_SG=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=failover-lab-alb-sg" \
+            --query "SecurityGroups[0].GroupId" --output text)
+          echo "alb_sg=$ALB_SG" >> "$GITHUB_OUTPUT"
+          echo "ALB security group: $ALB_SG"
+
+      - name: Break AWS (simulate outage)
+        if: inputs.action == 'break'
+        run: |
+          set -e
+          echo "Revoking ALB -> EC2 ingress on ${{ steps.tf.outputs.app_sg }}"
+          aws ec2 revoke-security-group-ingress \
+            --group-id "${{ steps.tf.outputs.app_sg }}" \
+            --protocol tcp --port 80 \
+            --source-group "${{ steps.albsg.outputs.alb_sg }}" \
+          || echo "Rule may already be removed — continuing."
+          echo ""
+          echo "AWS app is now cut off from the ALB."
+          echo "Route 53 health check will fail in ~60 seconds and DNS fails over to Azure."
+          echo "Watch: ${{ steps.tf.outputs.app_url }} should switch to the blue Azure page."
+
+      - name: Restore AWS
+        if: inputs.action == 'restore'
+        run: |
+          set -e
+          echo "Re-adding ALB -> EC2 ingress on ${{ steps.tf.outputs.app_sg }}"
+          aws ec2 authorize-security-group-ingress \
+            --group-id "${{ steps.tf.outputs.app_sg }}" \
+            --protocol tcp --port 80 \
+            --source-group "${{ steps.albsg.outputs.alb_sg }}" \
+          || echo "Rule may already exist — continuing."
+          echo ""
+          echo "AWS app is reachable again. Route 53 will route back to AWS once healthy."
+
+      - name: Status
+        if: always()
+        run: |
+          echo "=== Route 53 health check ==="
+          aws route53 get-health-check-status \
+            --health-check-id "${{ steps.tf.outputs.hc_id }}" \
+            --query "HealthCheckObservations[].StatusReport.Status" --output text || true
+          echo ""
+          echo "=== AWS ALB (${{ steps.tf.outputs.aws_url }}) ==="
+          curl -s -m 15 -o /dev/null -w "HTTP %{http_code}\n" "${{ steps.tf.outputs.aws_url }}/health" || echo "unreachable"
+          echo ""
+          echo "=== Azure LB (${{ steps.tf.outputs.azure_url }}) ==="
+          curl -s -m 15 -o /dev/null -w "HTTP %{http_code}\n" "${{ steps.tf.outputs.azure_url }}/health" || echo "unreachable"
+          echo ""
+          echo "=== Which cloud is serving ${{ steps.tf.outputs.app_url }} ==="
+          curl -s -m 15 "${{ steps.tf.outputs.app_url }}/" | grep -oE "ACTIVE — AWS|PASSIVE STANDBY — Azure" || echo "DNS not resolving yet (check nameservers)"
